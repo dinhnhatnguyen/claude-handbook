@@ -16,6 +16,9 @@ Research ngày 2026-04-30. Ưu tiên official docs của Anthropic/Claude Code.
 | Prompting best practices | https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices |
 | Prompt caching | https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching |
 | Pricing | https://docs.anthropic.com/en/docs/about-claude/pricing |
+| Contextual Retrieval/RAG | https://www.anthropic.com/engineering/contextual-retrieval |
+| Search results for RAG citations | https://platform.claude.com/docs/en/build-with-claude/search-results |
+| Context management | https://claude.com/blog/context-management |
 
 ## Những điểm đã chỉnh trong handbook mới
 
@@ -28,6 +31,7 @@ Research ngày 2026-04-30. Ưu tiên official docs của Anthropic/Claude Code.
 7. Nhấn mạnh subagents như cách giảm context cho exploration/review.
 8. Bớt các model name/version quá cụ thể để tránh lỗi thời. Khuyến nghị dùng model picker/current docs cho lựa chọn cụ thể.
 9. Thêm checklist và prompt templates để dùng hằng ngày.
+10. Bổ sung module RAG: khi nào cần RAG, setup local/MCP, chunking, contextual retrieval, BM25 + embeddings, rerank, citations và evals.
 
 ## Ghi chú về những nội dung có thể thay đổi
 

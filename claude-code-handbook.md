@@ -17,6 +17,7 @@ Nếu bạn muốn giảm tiền/token:
 2. Thiết lập CLAUDE.md gọn.
 3. Dùng `/clear` giữa các task khác nhau, `/compact` khi task dài nhưng vẫn cần tiếp tục.
 4. Giới hạn MCP, hooks, file reads và output dài.
+5. Nếu tài liệu lớn hoặc thay đổi thường xuyên, đọc [RAG và tối ưu context](#6-rag-và-tối-ưu-context).
 
 ---
 
@@ -408,9 +409,244 @@ Chỉ import tài liệu thật sự cần mỗi session. Tài liệu dài nên 
 
 ---
 
-## 6. Subagents, MCP, hooks và skills
+## 6. RAG và tối ưu context
 
-### 6.1 Subagents
+### 6.1 Khi nào cần RAG?
+
+RAG, viết tắt của Retrieval-Augmented Generation, là cách để Claude truy xuất đúng phần kiến thức cần thiết từ một kho tài liệu rồi chỉ đưa phần đó vào prompt. Mục tiêu không phải là "cho Claude biết tất cả", mà là "cho Claude đúng bằng chứng cần để trả lời hoặc hành động".
+
+Quyết định nhanh:
+
+| Tình huống | Cách làm nên ưu tiên |
+|---|---|
+| Tài liệu nhỏ, ổn định, dưới context window | Đưa trực tiếp vào prompt hoặc Project knowledge, tận dụng prompt caching |
+| Tài liệu vừa, cần hỏi nhiều lần | Chia file rõ, đặt tên tốt, dùng Claude Projects/RAG tự động nếu dùng Claude.ai |
+| Tài liệu lớn hoặc thay đổi thường xuyên | Build RAG riêng hoặc MCP retrieval tool |
+| Query cần mã lỗi, tên API, ID chính xác | Kết hợp BM25/keyword search với embeddings |
+| Cần trích dẫn nguồn | Trả kết quả retrieval kèm source/title/citation |
+| Cần dùng trong Claude Code | Tạo MCP/search command trả top chunks thay vì paste cả docs |
+
+RAG không thay thế context management. RAG tốt là một lớp lọc trước context.
+
+### 6.2 Kiến trúc RAG tối thiểu
+
+```text
+Documents
+  -> clean/normalize
+  -> chunk
+  -> contextualize chunk
+  -> embed + BM25 index
+  -> vector DB/search index
+  -> retrieve top-N
+  -> rerank
+  -> pass top-K chunks with source to Claude
+  -> answer/action with citations
+```
+
+Các thành phần:
+
+- Corpus: docs, README, ADR, tickets, API specs, logs, runbooks.
+- Chunker: chia tài liệu theo heading/section/code block, không cắt giữa ý.
+- Contextualizer: thêm 50-100 tokens mô tả chunk thuộc tài liệu nào, phần nào, version nào.
+- Retriever: semantic embeddings + BM25 để vừa bắt nghĩa, vừa bắt exact match.
+- Reranker: lọc top-N xuống top-K để giảm noise.
+- Prompt assembler: đưa chunk vào prompt có source rõ ràng.
+- Eval set: bộ câu hỏi thật để đo retrieval có đúng không.
+
+### 6.3 Setup RAG cho Claude Code
+
+Có 3 mức setup:
+
+**Mức 1: Không cần build RAG riêng**
+
+- Dùng `rg`, `find`, README, docs và prompt search-first trong Claude Code.
+- Phù hợp khi tài liệu nằm trong repo, quy mô nhỏ-vừa.
+- Tối ưu bằng CLAUDE.md gọn và yêu cầu Claude chỉ đọc section liên quan.
+
+**Mức 2: Local retrieval command**
+
+Tạo script nội bộ như:
+
+```bash
+./scripts/search-knowledge "payment retry policy"
+```
+
+Script trả về:
+
+```text
+Source: docs/payments/retry-policy.md#timeouts
+Title: Payment retry policy
+Score: 0.87
+Content:
+[chunk liên quan]
+```
+
+Sau đó prompt Claude:
+
+```text
+Trước khi trả lời, hãy dùng ./scripts/search-knowledge để lấy context liên quan.
+Chỉ dùng top 5 chunks. Nếu nguồn không đủ, nói rõ thiếu gì.
+```
+
+**Mức 3: MCP retrieval server**
+
+Dùng khi muốn Claude gọi retrieval như tool:
+
+```text
+Claude Code
+  -> MCP tool: search_knowledge(query, filters)
+  -> Retriever service
+  -> Vector DB + BM25
+  -> top chunks with source/title/content
+```
+
+MCP phù hợp khi knowledge nằm ngoài repo: Google Drive, Notion, Confluence, database, ticket system, internal docs.
+
+### 6.4 Chunking tốt
+
+Rule of thumb:
+
+- Chunk theo heading/section trước, theo số token sau.
+- Chunk vừa đủ để tự hiểu: thường vài trăm đến khoảng 800 tokens tùy domain.
+- Có overlap nhỏ nếu ý kéo dài qua section.
+- Giữ metadata: `source`, `title`, `heading_path`, `updated_at`, `version`, `owner`, `tags`.
+- Không embed boilerplate lặp lại như nav/footer/license dài.
+- Với code docs, giữ code block liền với giải thích gần nhất.
+
+Chunk tệ:
+
+```text
+"The default timeout is 30 seconds."
+```
+
+Chunk tốt hơn:
+
+```text
+Source: docs/payments/retry-policy.md
+Heading: Payment gateway -> Timeout and retry
+Context: Áp dụng cho checkout service v2 từ 2026-01.
+Content: The default timeout is 30 seconds...
+```
+
+### 6.5 Contextual Retrieval
+
+Vấn đề lớn của RAG truyền thống là chunk bị mất ngữ cảnh sau khi bị cắt khỏi tài liệu gốc. Contextual Retrieval giải quyết bằng cách prepend một đoạn context ngắn vào mỗi chunk trước khi embed và index BM25.
+
+Prompt contextualize mẫu:
+
+```text
+<document>
+{{WHOLE_DOCUMENT}}
+</document>
+
+<chunk>
+{{CHUNK_CONTENT}}
+</chunk>
+
+Hãy viết 1-3 câu ngắn để đặt chunk này vào đúng ngữ cảnh của tài liệu:
+- chunk thuộc tài liệu/phần nào
+- nói về entity/version/feature nào
+- vì sao chunk này quan trọng cho retrieval
+
+Chỉ trả về context ngắn, không giải thích thêm.
+```
+
+Sau đó lưu:
+
+```text
+contextualized_chunk = contextual_note + "\n\n" + original_chunk
+```
+
+Contextual note giúp query như "timeout checkout v2" tìm được chunk thay vì chỉ thấy câu rời rạc "default timeout is 30 seconds".
+
+### 6.6 Retrieval strategy
+
+Không nên chỉ dùng embeddings. Với tài liệu kỹ thuật, exact match rất quan trọng.
+
+Pipeline khuyến nghị:
+
+1. Rewrite query nếu cần: thêm synonyms, product/module name.
+2. Retrieve top 50-150 bằng embeddings.
+3. Retrieve top 50-150 bằng BM25/keyword.
+4. Merge + deduplicate bằng source/chunk id.
+5. Rerank theo query.
+6. Chỉ đưa top 5-20 chunks vào Claude tùy độ phức tạp.
+
+Top-K càng lớn không phải lúc nào càng tốt. Nhiều chunk hơn tăng cơ hội có bằng chứng đúng, nhưng cũng tăng noise và chi phí.
+
+### 6.7 Prompt dùng RAG
+
+Prompt tốt phải bắt Claude bám nguồn:
+
+```text
+Bạn sẽ nhận một số search results từ knowledge base.
+
+Rules:
+- Chỉ dùng thông tin trong search results và codebase hiện tại.
+- Nếu search results thiếu bằng chứng, nói "chưa đủ nguồn" và nêu cần tìm gì.
+- Khi trả lời quyết định kỹ thuật, trích source path/title.
+- Không suy đoán policy/version nếu không có nguồn.
+
+Question:
+[câu hỏi/task]
+
+Search results:
+[top-K chunks with source/title/content]
+```
+
+Với Claude API, nên dùng search result content blocks khi cần citation tự nhiên. Với Claude Code, mô phỏng bằng format source/title/content nhất quán cũng đã giúp giảm hallucination.
+
+### 6.8 Tối ưu context khi dùng RAG
+
+- Chỉ inject chunks cho câu hỏi hiện tại, không giữ toàn bộ docs trong session.
+- Dùng top-K nhỏ trước, tăng dần nếu thiếu bằng chứng.
+- Tóm tắt retrieval result thành "facts with sources" trước khi implement.
+- Sau khi Claude dùng xong, `/compact` nếu session dài để giữ facts/decisions, không giữ raw chunks.
+- Không đưa cùng lúc chunks trùng ý từ nhiều nguồn nếu không cần so sánh.
+- Ưu tiên source mới hơn hoặc authoritative hơn.
+- Với docs ổn định, cache/index trước; với docs thay đổi, lưu `updated_at` và re-index incremental.
+
+### 6.9 RAG evals
+
+Không có eval thì RAG chỉ là cảm giác.
+
+Tạo file nhỏ:
+
+```text
+evals/rag-questions.yml
+- question: "Timeout mặc định của checkout v2 là bao nhiêu?"
+  expected_sources:
+    - docs/payments/retry-policy.md#timeouts
+  expected_facts:
+    - "default timeout is 30 seconds"
+```
+
+Đo:
+
+- Retrieval recall: source đúng có nằm trong top-K không?
+- Answer faithfulness: câu trả lời có bám source không?
+- Citation quality: citation có đúng đoạn không?
+- Latency/cost: query mất bao lâu, đưa bao nhiêu tokens vào prompt?
+
+### 6.10 RAG anti-patterns
+
+| Anti-pattern | Tác hại | Cách sửa |
+|---|---|---|
+| Chunk quá nhỏ | Mất ngữ cảnh | Contextual note + chunk theo heading |
+| Chỉ dùng embeddings | Miss mã lỗi, tên API, ID | Thêm BM25/keyword |
+| Đưa quá nhiều chunks | Noise, tốn token | Rerank, top-K nhỏ |
+| Không lưu source | Không kiểm chứng được | Metadata bắt buộc |
+| Không có eval | Không biết retrieval đúng hay sai | Tạo 20-50 câu hỏi thật |
+| Index docs lỗi thời | Trả lời sai version | `updated_at`, re-index, owner |
+| Nhồi RAG result vào CLAUDE.md | Tốn context mọi session | Retrieve theo query |
+
+Xem template setup: [templates/rag-setup-template.md](templates/rag-setup-template.md). Xem deep dive: [deep-dives/rag-context-optimization.md](deep-dives/rag-context-optimization.md).
+
+---
+
+## 7. Subagents, MCP, hooks và skills
+
+### 7.1 Subagents
 
 Dùng subagents khi:
 
@@ -431,7 +667,7 @@ You are a strict API reviewer. Find bugs first. Do not edit files.
 Return findings with severity, file path, and suggested fix.
 ```
 
-### 6.2 MCP
+### 7.2 MCP
 
 MCP dùng để kết nối service ngoài: GitHub, database, Figma, Slack, Sentry, browser, internal tools.
 
@@ -443,7 +679,7 @@ Quy tắc:
 - Prefer read-only token cho research/review.
 - Tắt server không dùng trong session để tiết kiệm context.
 
-### 6.3 Hooks
+### 7.3 Hooks
 
 Hooks tốt cho việc deterministic:
 
@@ -455,7 +691,7 @@ Hooks tốt cho việc deterministic:
 
 Không nên dùng hook để thay thế reasoning. Hook quá phức tạp khó debug và có thể làm Claude nhận thêm nhiều context thừa.
 
-### 6.4 Skills
+### 7.4 Skills
 
 Skills phù hợp cho workflow lặp lại có tri thức riêng:
 
@@ -473,9 +709,9 @@ Skill nên có:
 
 ---
 
-## 7. Setup project chuẩn
+## 8. Setup project chuẩn
 
-### 7.1 Khởi tạo
+### 8.1 Khởi tạo
 
 ```bash
 cd your-project
@@ -486,7 +722,7 @@ claude
 
 Sau `/init`, dùng template gọn để prune CLAUDE.md. Dùng git làm safety net.
 
-### 7.2 Settings nên có
+### 8.2 Settings nên có
 
 ```json
 {
@@ -509,7 +745,7 @@ Ghi chú:
 - `.claude/settings.local.json`: cá nhân, không commit.
 - Enterprise có thể có managed policy riêng.
 
-### 7.3 Thư mục đề xuất
+### 8.3 Thư mục đề xuất
 
 ```text
 project/
@@ -531,9 +767,9 @@ project/
 
 ---
 
-## 8. Workflows mẫu
+## 9. Workflows mẫu
 
-### 8.1 Onboard codebase mới
+### 9.1 Onboard codebase mới
 
 ```text
 Hãy onboard codebase này.
@@ -547,7 +783,7 @@ Hãy:
 Chưa edit file.
 ```
 
-### 8.2 Sửa bug
+### 9.2 Sửa bug
 
 ```text
 Bug: [mô tả]
@@ -558,7 +794,7 @@ Evidence: [log/screenshot/test]
 Hãy trace root cause trước, sửa scope hẹp nhất, thêm regression test nếu hợp lý, rồi chạy test liên quan.
 ```
 
-### 8.3 Thêm feature
+### 9.3 Thêm feature
 
 ```text
 Feature: [mô tả]
@@ -571,7 +807,7 @@ Hãy inspect current patterns, plan ngắn, implement theo pattern hiện có, v
 Không thêm dependency mới nếu không cần.
 ```
 
-### 8.4 Code review
+### 9.4 Code review
 
 ```text
 Review diff hiện tại.
@@ -580,7 +816,7 @@ Tập trung vào bug, regression, security, missing tests.
 Không nitpick style nếu không ảnh hưởng behavior.
 ```
 
-### 8.5 Refactor
+### 9.5 Refactor
 
 ```text
 Refactor [module] để [mục tiêu].
@@ -589,7 +825,7 @@ Trước khi sửa, tìm test hiện có. Nếu coverage yếu, đề xuất saf
 Sau khi sửa, chạy test liên quan và so sánh public behavior.
 ```
 
-### 8.6 Automation non-interactive
+### 9.6 Automation non-interactive
 
 ```bash
 claude -p "Review this diff for bugs only" < diff.txt
@@ -599,7 +835,7 @@ claude -p "Summarize this log and flag anomalies" < app.log
 
 ---
 
-## 9. Anti-patterns cần tránh
+## 10. Anti-patterns cần tránh
 
 | Anti-pattern | Tác hại | Cách sửa |
 |---|---|---|
@@ -614,7 +850,7 @@ claude -p "Summarize this log and flag anomalies" < app.log
 
 ---
 
-## 10. Checklist nhanh
+## 11. Checklist nhanh
 
 Trước session:
 
@@ -640,7 +876,7 @@ Trước khi kết thúc:
 
 ---
 
-## 11. Tài liệu chuyên sâu trong repo này
+## 12. Tài liệu chuyên sâu trong repo này
 
 - [deep-dives/context-window-mechanics.md](deep-dives/context-window-mechanics.md)
 - [deep-dives/prompt-caching.md](deep-dives/prompt-caching.md)
@@ -648,11 +884,12 @@ Trước khi kết thúc:
 - [deep-dives/hook-scripting.md](deep-dives/hook-scripting.md)
 - [deep-dives/mcp-servers-guide.md](deep-dives/mcp-servers-guide.md)
 - [deep-dives/extended-thinking.md](deep-dives/extended-thinking.md)
+- [deep-dives/rag-context-optimization.md](deep-dives/rag-context-optimization.md)
 
 Ghi chú: các deep dive cũ đã được giữ lại, nhưng khi có xung đột với handbook mới và official docs, ưu tiên handbook mới + [references/research-sources.md](references/research-sources.md).
 
 ---
 
-## 12. Sources
+## 13. Sources
 
 Danh sách research và những điểm đã cập nhật nằm trong [references/research-sources.md](references/research-sources.md).

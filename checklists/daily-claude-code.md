@@ -7,6 +7,7 @@
 - [ ] Prompt có đủ goal, scope và acceptance criteria.
 - [ ] Nếu task rủi ro cao, yêu cầu explore/plan trước khi edit.
 - [ ] Nếu có secret/local env, đảm bảo đã deny trong settings.
+- [ ] Nếu cần dùng tài liệu lớn, quyết định trước: đọc trực tiếp, search trong repo, hay dùng RAG/retrieval.
 
 ## 2. Prompt khởi động nhanh
 
@@ -33,6 +34,7 @@ Working rules:
 ## 3. Trong lúc làm
 
 - [ ] Bảo Claude search trước khi đọc file lớn.
+- [ ] Nếu dùng RAG, chỉ đưa top chunks có source/title rõ ràng.
 - [ ] Nếu output bắt đầu dài và lan man, yêu cầu "state summary + next step only".
 - [ ] Nếu context dài, dùng `/compact Focus on files edited, decisions, failing tests, next steps`.
 - [ ] Nếu Claude sửa rộng quá scope, dừng lại và yêu cầu review diff.
@@ -53,5 +55,6 @@ Working rules:
 - Claude sửa unrelated files.
 - Session chuyển sang task mới.
 - Test/log cũ không còn liên quan.
+- RAG results đã dùng xong và không cần giữ raw chunks nữa.
 
 Dùng `/clear` nếu là task mới. Dùng `/compact` nếu vẫn là cùng task.

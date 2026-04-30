@@ -101,3 +101,18 @@ Làm task này với token tối ưu:
 - Chỉ đọc/sửa file liên quan.
 - Final ngắn: result, files, verification, risks.
 ```
+
+## 8. RAG/retrieval instruction
+
+```text
+Task: [câu hỏi hoặc việc cần làm]
+
+Trước khi trả lời hoặc sửa code:
+1. Dùng retrieval/search tool để tìm nguồn liên quan.
+2. Chỉ lấy top 5-10 chunks có source/title rõ.
+3. Tóm tắt facts with sources trước.
+4. Nếu nguồn không đủ, nói rõ thiếu nguồn nào, không suy đoán.
+5. Sau khi có đủ context, mới implement/trả lời.
+
+Không paste toàn bộ tài liệu vào prompt.
+```

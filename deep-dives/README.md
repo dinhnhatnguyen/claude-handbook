@@ -16,3 +16,4 @@ Khi dùng các file này:
 - [hook-scripting.md](hook-scripting.md) - examples hook scripting, cần verify với hook docs mới.
 - [mcp-servers-guide.md](mcp-servers-guide.md) - overview MCP servers.
 - [prompt-caching.md](prompt-caching.md) - prompt caching concept và API patterns.
+- [rag-context-optimization.md](rag-context-optimization.md) - RAG, retrieval setup và context optimization.

@@ -8,7 +8,9 @@ Tài liệu này giúp bạn dùng Claude Code tối ưu hơn về prompt, conte
 2. [checklists/daily-claude-code.md](checklists/daily-claude-code.md) - checklist dùng mỗi ngày.
 3. [templates/claude-md-lean-template.md](templates/claude-md-lean-template.md) - template CLAUDE.md ngắn gọn cho project.
 4. [templates/prompt-patterns.md](templates/prompt-patterns.md) - prompt mẫu theo loại việc.
-5. [references/research-sources.md](references/research-sources.md) - nguồn research và điểm cần lưu ý.
+5. [deep-dives/rag-context-optimization.md](deep-dives/rag-context-optimization.md) - RAG, setup retrieval và tối ưu context.
+6. [templates/rag-setup-template.md](templates/rag-setup-template.md) - template thiết kế RAG cho project.
+7. [references/research-sources.md](references/research-sources.md) - nguồn research và điểm cần lưu ý.
 
 ## Bản đồ tài liệu
 
@@ -20,7 +22,8 @@ Tài liệu này giúp bạn dùng Claude Code tối ưu hơn về prompt, conte
 |   `-- daily-claude-code.md
 |-- templates/
 |   |-- claude-md-lean-template.md
-|   `-- prompt-patterns.md
+|   |-- prompt-patterns.md
+|   `-- rag-setup-template.md
 |-- references/
 |   `-- research-sources.md
 |-- deep-dives/
@@ -30,7 +33,8 @@ Tài liệu này giúp bạn dùng Claude Code tối ưu hơn về prompt, conte
 |   |-- extended-thinking.md
 |   |-- hook-scripting.md
 |   |-- mcp-servers-guide.md
-|   `-- prompt-caching.md
+|   |-- prompt-caching.md
+|   `-- rag-context-optimization.md
 `-- archive/
     `-- original-2026-04-30/
 ```
@@ -45,7 +49,7 @@ Tài liệu này giúp bạn dùng Claude Code tối ưu hơn về prompt, conte
 | 4 | Luyện `/clear`, `/compact`, `--resume` | Session sạch và rẻ hơn |
 | 5 | Tạo 1 subagent reviewer hoặc explorer | Giảm phình context main |
 | 6 | Thêm deny rules cho secrets/lệnh nguy hiểm | An toàn hơn |
-| 7 | Review lại cost và workflow | Chốt personal workflow |
+| 7 | Thiết kế RAG/context strategy cho tài liệu lớn | Không nhồi tài liệu vào prompt |
 
 ## Nguyên tắc của bộ tài liệu này
 
